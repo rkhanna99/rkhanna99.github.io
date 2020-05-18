@@ -1,0 +1,275 @@
+---
+title: 'Crime in Baltimore'
+author: "Rahul Khanna"
+date: "May 15, 2020"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  html_notebook: default
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+As a student at the University of Maryland and a long time resident of Maryland I have been in and around Baltimore quite a bit as I've grown up. Baltimore is famous for many things, for example it is home to the national aquarium which has been open since 1981. Baltimore is also know for its crabs and being home to the Baltimore Orioles. While there are many great things to do in Baltimore, it has one major hindering factor. Baltimore is one of the most dangerous cities in the country.
+
+According to news outlets such as USAToday and CBS news, Baltimore is ranked in the top 5 of most dangerous cities in America. The violent crime rate ranks much higher than the national average. Crime in Baltimore has also been reflected in pop culture through TV shows such as The Wire. So today we are going to take a deeper dive into crime in Baltimore by analyzing data provided by the Baltimore Police Department which is open data from the city of Baltimore. We are also gonna focus on cases that had physical arrests.
+
+## Table of Contents
+
+1. Data Preparation
+2. Data Manipulation
+3. Data Analysis and Visualization
+4. Linear Regression and Hypothesis Testing
+5. Conclusion
+6. References/Additional Reading
+
+## Part 1: Data Preparation
+
+Hector had provided us with a csv file that also looked at arrest data in Baltimore from the Baltimore Police Department. The problem with the data he provided was that it was slightly outdated (Data was only from 2011-2012). So instead I downloaded the dataset from https://data.baltimorecity.gov/Public-Safety/BPD-Arrests/3i3v-ibrt. This dataset shows arrest data from 2014-2020 which is a much more accurate repreesntation of what is happening today.
+
+**1.1 Libraries**
+
+First we will start out by importing in all the necessary R libraries for this data analysis.
+
+```{r libraries}
+library(tidyverse)
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(broom)
+library(leaflet)
+```
+
+**1.2 Load/View Data**
+
+Now we can load in the downloaded dataset by using the read_csv function. After loading in the data we can see the first n rows of the data using head(). This also allows us to view the attributes and the entities of our dataset.
+
+```{r data}
+arrest_tab <- read_csv("BPD_Arrests.csv")
+head(arrest_tab, n = 20)
+```
+
+**1.3 Tidy Data**
+
+Now we will Tidy the dataset by rempving some of the columns that we didn't need such as Neighborhood, Location 1, Zip Codes, and the 2010 Census information. We also changed the type of ArrestDate which was initially <chr> but now it is of type <date> which is more representative of what we want to show.
+
+```{r tidydata}
+included_cols <- c("Arrest", "Age", "Sex", "Race", "ArrestDate", "ArrestTime", "ArrestLocation", "IncidentOffense", "IncidentLocation", "Charge", "ChargeDescription", "District", "Post", "Longitude", "Latitude")
+
+arrest_data <- arrest_tab[included_cols] %>%
+  type_convert(col_types = cols(ArrestDate = col_date("%m/%d/%Y")))
+head(arrest_data, n = 20)
+  
+```
+
+## Part 2: Data Manipulation
+
+Our data at this point has a couple of issue and we still need to clean them up. For example we have to handle missing data. Since we are focusing on cases that had physical arrests we will be filtering out any arrests that didn't have a recorded arrest location. We will also be doing an analysis on the districts, so any arrests that didn't have a listed district will also be filtered out.
+
+```{r datamanip}
+arrest_data_filtered <- arrest_data %>%
+  filter(!is.na(`District`)) %>%
+  filter(!is.na(`ArrestLocation`))
+arrest_data_filtered
+```
+
+
+## Part 3: Data Analysis and Visualization
+
+Now at this stage our data is ready to be analyzed. We are going to analyze the data by creating multiple plots which will make it easier to analyze the data.
+
+**3.1 Number of Arrests in each District**
+
+For this part we want to determine which district has hads the most arrests over the time period that the data was taken (2014-2020). To do this we will count the number of arrests in each district and then sort in descenting order.
+
+```{r 3-1}
+district_analysis <- arrest_data_filtered %>%
+  select(ArrestDate, District) %>%
+  group_by(District) %>%
+  count(District) %>%
+  rename(number_of_arrests = n) %>%
+  arrange(desc(number_of_arrests))
+district_analysis
+```
+
+So now we can see the number of arrests in each of the 9 main districts of Baltimore. From this table we can see that Southern Baltimore had the most arrests and Western Baltimore had the second most. And then at the other end of the spectrum Northern Baltimore had the fewest number of arrests by a substantial margin.
+
+Now we can visualize this data through a bar graph. We want to use a bar graph for this situation becuase we want to visualize the relationship between a continuous variable and a categorical attribute. To do this we will be using ggplot.
+
+```{r 3-1graph}
+district_analysis %>%
+  filter(District %in% c("Southern", "Western", "Southeast", "Eastern", "Northeast", "Central", "Southwest", "Northwest", "Northern")) %>%
+  ggplot(mapping = aes(x = District, y = number_of_arrests)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 90)) + labs(title = "Arrest count in each District of Baltimore (2014-2020)", y = "Number of Arrests")
+```
+
+**3.2 Analyzing arrests in Top 5 districts over the years**
+
+So based off the last part we can see that the 5 districts with the most arrests were Southern, Western, Southeast, Eastern, and Northeast. In this part we will see how the number of arrests progresses each year in those 5 districts. First we will filter the data so that we only account for those 5 and then we will count the number of arrests by year.
+
+```{r 3-2}
+placeholder <- arrest_data_filtered
+placeholder$ArrestDate <- format(as.Date(placeholder$ArrestDate, format = "%m/%d/%Y"), "%Y")
+
+yearly_district_analysis <- placeholder %>%
+  filter(District == "Southern" | District == "Western" | District == "Southeast" | District == "Eastern" | District == "Northeast") %>%
+  group_by(ArrestDate, District) %>%
+  count(ArrestDate, District) %>%
+  rename(number_of_arrests = n) %>%
+  arrange(desc(number_of_arrests))
+yearly_district_analysis
+```
+
+Now after determining the yearly totals for arrests in each of the top 5 districts we can then visualize the data through a line chart. We usually utilize a line chart when we want to visualize data over time.
+
+```{r 3-2graph}
+yearly_district_analysis$ArrestDate <- as.numeric(as.character(yearly_district_analysis$ArrestDate))
+yearly_district_analysis %>%
+  filter(District %in% c("Southern", "Western", "Southeast", "Eastern", "Northeast")) %>%
+  ggplot(mapping = aes(x = ArrestDate, y = number_of_arrests, size = 1)) + geom_line(aes(color=District), size =  1) + labs(title = "Number of Arrests in 5 districts from 2014-2020", x = "Year", y = "Number of Arrests")
+```
+
+Based off this line graph we can see that from 2014 to 2020, Baltimore overall has had a relatively steep decline in the number or arrests, albeit the data for 2020 doesn't include the full year yet. Some other interesting things we can notice are that the Southern District starts out as the district with the most arrests but then in 2017 and 2018 it becomes the district with the least amount of arrests between the 5 selected.
+
+**3.3 The most common reasons for arrest**
+
+Another way we can approach the data would be to look at which incidents leading to arrest have been most prevalent in Baltimore. To do this we will count the number of arrests based on charge description. We will focus on the 20 most common offenses. **Also note that we will be ignoring the charge "Unknown Charge" in this case as it isn't linked to any particular offense.**
+
+```{r 3-3}
+charge_analysis <- arrest_data_filtered %>%
+  group_by(ChargeDescription) %>%
+  filter(ChargeDescription != "Unknown Charge") %>%
+  count(ChargeDescription) %>%
+  rename(number_of_offenses = n) %>%
+  arrange(desc(number_of_offenses))
+charge_analysis <- charge_analysis[1:20,]
+charge_analysis
+```
+
+Now that we have calculated the 20 most common offenses, we will then plot data using a bar graph similar to part 3.1. This will help us better visualize the amount of offenses.
+
+```{r 3-3graph}
+charge_analysis %>%
+  ggplot(mapping = aes(x = ChargeDescription, y = number_of_offenses)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 90)) + labs(title = "Counting the top 20 most common offenses leading to arrest", x = "Type of Offense", y = "Number of Offenses")
+```
+
+Based off this bar graph we can clearly see that CDS (Controlled Dangerous Substances) violations are by far the most common violations. And then in a distant third, Common Assault would be the next most common reason for arrest. Aside from these 3 violations and HGV we can see that the other top 20 offenses all have less than 3000 offenses each.
+
+**3.4 Locating Arrests in 2020**
+
+And in our last part for Data analysis we will look at where the most recent arrests took place in Baltimore. We will be doing this by isolating arrests from April 2020 in our dataset. Then we will use the leaflet library to show where the arrests took place and then we will be able to analyze based off that map.
+
+```{r 3-4}
+new_placeholder <- arrest_data_filtered
+new_placeholder$ArrestDate <- format(as.Date(new_placeholder$ArrestDate, format = "%m/%d/%Y"), "%m/%Y")
+
+location_analysis <- new_placeholder %>%
+  filter(ArrestDate == "04/2020")
+
+location_analysis_map <- leaflet(location_analysis) %>%
+  addTiles() %>%
+  addMarkers(~Longitude, ~Latitude, popup = ~as.character(ArrestLocation), label = ~as.character(ChargeDescription)) %>%
+  setView(lat = 39.3, lng = -76.63, zoom = 12)
+
+location_analysis_map 
+  
+```
+
+While this map seems quite clutered, we can still see that even in April 2020 it seems as if the Southern, Western, and Southwest districts of Baltimore have significatnly more arrests than the other districts of Baltimore. And then on the other end of the spectrum we can see that the northern district of Baltimore has relatively fewer arrests.
+
+## Part 4: Linear Regression and Hypothesis Testing
+
+Now that we have finished our analysis and visualization, we are going to look at linear regression and hypothesis testing. We utilize linear regression when we want to predict the future patterns of Data that we already have. We are going to take a linear regression on the total number of arrests per year vs year data. We will then compare it to another regression including the District to the data. We will then preform F-test.
+
+**4.1 Linear Regression on Total Number of Arrests by Years**
+
+We are going to create a linear regression model for the total number of arrests vs years. So we are going to count the number of arrests per year and then plot this using a scatter plot. After this I will create the line for the linear model. **Also note that we will be excluding any arrest data from 2020 as the data for the full year hasn't been collected yet and it would skew the data.**
+
+```{r 4.1}
+linear_placeholder <- arrest_data_filtered
+linear_placeholder$ArrestDate <- format(as.Date(linear_placeholder$ArrestDate, format = "%m/%d/%Y"), "%Y")
+linear_placeholder <- linear_placeholder %>%
+  mutate(ArrestDate = as.numeric(linear_placeholder$ArrestDate))
+
+yearly_arrests <- linear_placeholder %>%
+  select(ArrestDate) %>%
+  filter(ArrestDate != 2020) %>%
+  group_by(ArrestDate) %>%
+  count(ArrestDate) %>%
+  rename(number_of_arrests = n)
+
+yearly_arrests %>%
+  ggplot(mapping = aes(x = ArrestDate, y = number_of_arrests)) + geom_point() + geom_smooth(method = lm, aes(group = 1)) + labs(title = "Linear Regression on Total arrests by Years", x = "Year", y = "Number of Arrests")
+
+```
+
+**4.2 Fitting the Linear Regression Model**
+
+Now for this part we want to fit 2 linear regression models. In the first one we had total number arrests for each year(2014-2019). For the seocnd one we will count the total number arrests for both district and year. And like in the last part we will be filtering data from 2020 is it is incomplete.
+
+```{r 4.2.1}
+district_yearly_arrests <- linear_placeholder %>%
+  filter(ArrestDate != 2020) %>%
+  select(ArrestDate, District) %>%
+  group_by(ArrestDate, District) %>%
+  count(ArrestDate, District) %>%
+  rename(number_of_arrests = n)
+district_yearly_arrests
+```
+
+Now we will use the broom tidy function to give us the result of the linear model
+
+```{r 4.2.2}
+regression_year_arrests <- lm(yearly_arrests$number_of_arrests~ArrestDate, data = yearly_arrests)
+broom::tidy(regression_year_arrests)
+```
+
+From this data we can see that the p_value is less than 0.05 so we can reject the null hypothesis. So from that we can say that there is a significant relationship between the number of arrests and the year.
+
+We use the same broom tidy function to test the second linear regression model that includes the district as well.
+
+```{r 4.2.3}
+regression_district_year_arrests <- lm(district_yearly_arrests$number_of_arrests~ArrestDate*District, data = district_yearly_arrests)
+broom::tidy(regression_district_year_arrests)
+```
+
+From this data we can see that the p_values for the districts and years is less than 0.05. So we can say that there is a significant relationship between the variables in the linear regression model. Since this p_value is smaller than the p_value in the previous regression model, we can say that the model with both District and years is more accurate.
+
+**4.3 Hypothesis Testing**
+
+We have to vrify our hypothesis. We can do this by F-testing to verify that our linear regression models properly fit the data. To preform the F-test we will use anova.
+
+```{r 4.3}
+anova(regression_year_arrests)
+
+anova(regression_district_year_arrests)
+```
+
+So to get a better undersatnding of which linear regression model was better we have to look at the residuals row for each of the 2 tests. We can conclude that the linear regression model with both district and year is better than the model that only uses years, because it has smaller residules based off the respective F-tests.
+
+## Part 5: Conclusion
+
+As a longtime Maryland resident it is important to get a better understanding of the crime rates in the biggest city in the state. As someone who has frequently visited Baltimore and lives nearby this has been quite an eye opening experiment. From this project we have shown how we can use data science to gather and present information that is relevant to everyday life.
+
+Based off of our analysis we can see that the total number of arrests in Baltimore is on a decline which is great news for the city. We have also learned about other facts such as which districts have the most arrests and what are the most common reasons for arrest.
+
+I hope with this experiment you have got a better understanding of Data science and some of the crime statistics regading Baltimore. I encourage you to do further research and try to draw other parallels between the data. One example of this would be is there a correlation between Race and the district of the arrest.
+
+## Part 6: References/Additional Reading
+
+Here are some links to some of the refernces that I used for help in R. There are also some limks to more data related to crime in Baltimore which could be helpful in further research.
+
+https://data.baltimorecity.gov/Public-Safety/BPD-Arrests/3i3v-ibrt/data
+https://rstudio.com/wp-content/uploads/2015/03/ggplot2-cheatsheet.pdf
+https://rstudio.github.io/leaflet/
+https://www.baltimorepolice.org/crime-stats/crime-map-data-stats
+https://www.baltimoresun.com/news/crime/
+
+
+
